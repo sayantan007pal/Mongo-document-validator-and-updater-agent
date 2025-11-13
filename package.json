@@ -1,0 +1,39 @@
+{
+  "name": "coding-question-validator",
+  "version": "1.0.0",
+  "description": "MongoDB schema validation and auto-correction system for coding questions",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "scanner": "ts-node src/scanner.ts",
+    "consumer": "ts-node src/consumer.ts",
+    "start:scanner": "node dist/scanner.js",
+    "start:consumer": "node dist/consumer.js",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "mongodb",
+    "validation",
+    "ai",
+    "correction",
+    "queue"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.0",
+    "bullmq": "^5.1.0",
+    "dotenv": "^16.3.1",
+    "ioredis": "^5.3.2",
+    "mongodb": "^6.3.0",
+    "typescript": "^5.3.3",
+    "winston": "^3.11.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "nodemon": "^3.0.2",
+    "ts-node": "^10.9.2"
+  }
+}
