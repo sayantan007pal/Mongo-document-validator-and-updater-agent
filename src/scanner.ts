@@ -28,7 +28,10 @@ async function main() {
     logger.info('Configuration loaded successfully');
 
     // Initialize backup manager
-    const backupManager = new BackupManager(config.app.backupDir);
+    const backupManager = new BackupManager(
+      config.app.failedQuestionsDir,
+      config.app.correctedQuestionsDir
+    );
     await backupManager.initialize();
 
     // Initialize MongoDB service

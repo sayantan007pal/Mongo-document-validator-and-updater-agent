@@ -10,8 +10,12 @@ import path from 'path';
  */
 export const AppConfigSchema = z.object({
   batchSize: z.number().int().positive().default(100),
-  backupDir: z.string().min(1).default('./failed_questions'),
+  failedQuestionsDir: z.string().min(1).default('./failed_questions_original'),
+  correctedQuestionsDir: z.string().min(1).default('./corrected_questions'),
+  failureReportPath: z.string().min(1).default('./AI_CORRECTION_FAILURES.md'),
   logLevel: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
+  retryMaxAttempts: z.number().int().positive().default(3),
+  retryDelayMs: z.number().int().positive().default(5000),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
@@ -32,8 +36,12 @@ export interface Config {
 function loadAppConfig(): AppConfig {
   return AppConfigSchema.parse({
     batchSize: parseInt(process.env.BATCH_SIZE || '100', 10),
-    backupDir: process.env.BACKUP_DIR || './failed_questions',
+    failedQuestionsDir: process.env.FAILED_QUESTIONS_DIR || './failed_questions_original',
+    correctedQuestionsDir: process.env.CORRECTED_QUESTIONS_DIR || './corrected_questions',
+    failureReportPath: process.env.FAILURE_REPORT_PATH || './AI_CORRECTION_FAILURES.md',
     logLevel: process.env.LOG_LEVEL || 'info',
+    retryMaxAttempts: parseInt(process.env.RETRY_MAX_ATTEMPTS || '3', 10),
+    retryDelayMs: parseInt(process.env.RETRY_DELAY_MS || '5000', 10),
   });
 }
 
@@ -52,9 +60,15 @@ export function loadConfig(): Config {
       app: loadAppConfig(),
     };
 
-    // Ensure backup directory is absolute path
-    if (!path.isAbsolute(config.app.backupDir)) {
-      config.app.backupDir = path.resolve(process.cwd(), config.app.backupDir);
+    // Ensure directories are absolute paths
+    if (!path.isAbsolute(config.app.failedQuestionsDir)) {
+      config.app.failedQuestionsDir = path.resolve(process.cwd(), config.app.failedQuestionsDir);
+    }
+    if (!path.isAbsolute(config.app.correctedQuestionsDir)) {
+      config.app.correctedQuestionsDir = path.resolve(process.cwd(), config.app.correctedQuestionsDir);
+    }
+    if (!path.isAbsolute(config.app.failureReportPath)) {
+      config.app.failureReportPath = path.resolve(process.cwd(), config.app.failureReportPath);
     }
 
     return config;

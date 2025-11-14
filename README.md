@@ -36,8 +36,10 @@ This system provides automated validation and correction of coding question docu
 ### Core Capabilities
 
 - ✅ Strict schema validation with 10+ validation rules
-- ✅ Automatic backup before any modifications
+- ✅ Automatic backup before any modifications with organized naming (slug_mongoId.json)
 - ✅ AI-powered document correction using OpenAI GPT API
+- ✅ Separate storage for failed and corrected documents
+- ✅ Failure tracking with detailed markdown reports
 - ✅ Queue-based processing with AWS SQS
 - ✅ Batch processing for efficiency
 - ✅ Comprehensive logging with Winston
@@ -109,6 +111,65 @@ This system provides automated validation and correction of coding question docu
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## File Organization & Tracking
+
+### Directory Structure
+
+The system maintains three separate storage locations for different document states:
+
+**1. `failed_questions_original/`**
+- Stores original documents that failed validation
+- Filename format: `[slug]_[mongoId].json`
+- Example: `binary-search_6847dd2ab2279627c52be590.json`
+- Contains metadata wrapper with validation errors and backup timestamp
+- Created by: Scanner service when validation fails
+
+**2. `corrected_questions/`**
+- Stores successfully corrected documents
+- Filename format: `[slug]_[mongoId].json`
+- Example: `binary-search_6847dd2ab2279627c52be590.json`
+- Plain JSON format (no metadata wrapper)
+- Created by: Consumer service after successful AI correction and MongoDB update
+
+**3. `AI_CORRECTION_FAILURES.md`**
+- Markdown report tracking all correction failures
+- Updated when AI correction fails after all retry attempts
+- Contains:
+  - Summary table with timestamps, retry counts, and failure reasons
+  - Detailed logs for each failure with full validation errors
+  - Links to original backup files
+  - Action items for manual intervention
+
+### Filename Convention
+
+Both failed and corrected documents use the same naming pattern:
+```
+[slug]_[mongoId].json
+```
+
+**Components:**
+- `slug`: The URL-friendly identifier from the document (e.g., "binary-search", "two-sum")
+- `mongoId`: The MongoDB ObjectId as a string (e.g., "6847dd2ab2279627c52be590")
+
+**Benefits:**
+- Easy to correlate failed and corrected versions of the same question
+- Human-readable and searchable
+- Unique identifier prevents overwrites
+- Direct mapping to MongoDB documents
+
+### Failure Tracking Flow
+
+When AI correction fails after all retry attempts:
+1. Consumer detects max retries reached
+2. Creates failure entry with:
+   - Question details (slug, title, MongoDB ID)
+   - Original validation errors
+   - AI failure reason (parsing error, still invalid, timeout, etc.)
+   - Retry count and timestamps
+   - Path to original backup file
+3. Appends entry to `AI_CORRECTION_FAILURES.md`
+4. Entry appears in both summary table and detailed logs section
+
 ## Prerequisites
 
 ### Required Services
@@ -162,7 +223,7 @@ npm run build
 ### 3. Create Directories
 
 ```bash
-mkdir -p failed_questions logs
+mkdir -p failed_questions_original corrected_questions logs
 ```
 
 ## Configuration
@@ -196,7 +257,9 @@ AI_TEMPERATURE=0.1
 
 # Application Configuration
 BATCH_SIZE=100
-BACKUP_DIR=./failed_questions
+FAILED_QUESTIONS_DIR=./failed_questions_original
+CORRECTED_QUESTIONS_DIR=./corrected_questions
+FAILURE_REPORT_PATH=./AI_CORRECTION_FAILURES.md
 LOG_LEVEL=info
 RETRY_MAX_ATTEMPTS=3
 RETRY_DELAY_MS=5000
@@ -433,21 +496,35 @@ const stats = await queueService.getStats();
 
 ### Backup Files
 
-Backups are saved to: `./failed_questions/[ISO-timestamp]_[question_id].json`
+**Failed Questions (Original):** Backups are saved to `./failed_questions_original/[slug]_[mongoId].json`
 
-Example filename: `2024-01-15T10-30-00-000Z_Q12345.json`
+Example filename: `binary-search_6847dd2ab2279627c52be590.json`
 
 Structure:
 ```json
 {
   "metadata": {
     "backupTime": "2024-01-15T10:30:00Z",
-    "documentId": "507f1f77bcf86cd799439011",
+    "documentId": "6847dd2ab2279627c52be590",
     "validationErrors": [...]
   },
   "originalDocument": {...}
 }
 ```
+
+**Corrected Questions:** Successfully corrected documents are saved to `./corrected_questions/[slug]_[mongoId].json`
+
+Example filename: `binary-search_6847dd2ab2279627c52be590.json`
+
+Structure: Plain JSON document (no metadata wrapper)
+
+**AI Correction Failures:** Failed corrections are logged to `./AI_CORRECTION_FAILURES.md`
+
+This markdown file tracks:
+- Questions that couldn't be corrected after all retry attempts
+- Detailed failure reasons and validation errors
+- Links to original backup files
+- Timestamps and retry counts
 
 ## Troubleshooting
 
@@ -562,13 +639,15 @@ coding-question-validator/
 │   ├── models/          # TypeScript interfaces
 │   ├── validators/      # Schema validation logic
 │   ├── services/        # Core services
-│   ├── utils/           # Utility functions
+│   ├── utils/           # Utility functions (BackupManager, FailureReportManager)
 │   ├── prompts/         # AI prompt templates
 │   ├── scanner.ts       # Scanner CLI
 │   ├── consumer.ts      # Consumer CLI
 │   └── index.ts         # Main exports
-├── logs/                # Log files
-├── failed_questions/    # Backup directory
+├── logs/                        # Log files
+├── failed_questions_original/   # Original failed documents
+├── corrected_questions/         # AI-corrected documents
+├── AI_CORRECTION_FAILURES.md    # Failure tracking report
 ├── package.json
 ├── tsconfig.json
 └── .env

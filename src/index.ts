@@ -46,6 +46,7 @@ export { SchemaValidator } from './validators/SchemaValidator';
 export { Logger, logger } from './utils/Logger';
 export { RetryHelper, RetryOptions } from './utils/RetryHelper';
 export { BackupManager } from './utils/BackupManager';
+export { FailureReportManager, FailureEntry } from './utils/FailureReportManager';
 
 // Prompts
 export { generateCorrectionPrompt, parseAIResponse } from './prompts/correction-prompt';

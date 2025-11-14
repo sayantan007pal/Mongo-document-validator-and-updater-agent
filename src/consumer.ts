@@ -8,6 +8,8 @@ import { AIProcessorService } from './services/AIProcessorService';
 import { UpdaterService } from './services/UpdaterService';
 import { SchemaValidator } from './validators/SchemaValidator';
 import { QueueMessage } from './models/QueueMessage';
+import { BackupManager } from './utils/BackupManager';
+import { FailureReportManager } from './utils/FailureReportManager';
 
 /**
  * Consumer CLI - Processes queue and updates documents
@@ -28,6 +30,17 @@ async function main() {
     // Initialize logger
     const logger = Logger.initialize(config.app.logLevel);
     logger.info('Configuration loaded successfully');
+
+    // Initialize backup manager
+    const backupManager = new BackupManager(
+      config.app.failedQuestionsDir,
+      config.app.correctedQuestionsDir
+    );
+    await backupManager.initialize();
+
+    // Initialize failure report manager
+    const failureReportManager = new FailureReportManager(config.app.failureReportPath);
+    await failureReportManager.initialize();
 
     // Initialize MongoDB service
     logger.info('Connecting to MongoDB...');
@@ -56,8 +69,8 @@ async function main() {
     // Initialize updater service
     const updaterService = new UpdaterService(
       mongoService,
-      config.queue.retryMaxAttempts,
-      config.queue.retryDelayMs
+      config.app.retryMaxAttempts,
+      config.app.retryDelayMs
     );
 
     // Initialize validator
@@ -119,6 +132,18 @@ async function main() {
           throw new Error('Failed to update document in MongoDB');
         }
 
+        // Step 4: Save corrected document to corrected_questions directory
+        logger.info('Saving corrected document', { documentId });
+        try {
+          await backupManager.saveCorrectedDocument(correctedDocument);
+        } catch (saveError) {
+          logger.error('Failed to save corrected document', {
+            documentId,
+            error: (saveError as Error).message,
+          });
+          // Don't throw - document was already updated in MongoDB
+        }
+
         // Success
         const duration = Date.now() - startTime;
         successCount++;
@@ -139,7 +164,33 @@ async function main() {
           documentId,
           error: (error as Error).message,
           stack: (error as Error).stack,
+          retryCount,
         });
+
+        // If this was the last retry attempt, log to failure report
+        if (retryCount >= config.app.retryMaxAttempts - 1) {
+          logger.warn('Max retry attempts reached, logging to failure report', {
+            documentId,
+            retryCount,
+          });
+
+          try {
+            const backupFilePath = `${config.app.failedQuestionsDir}/${(failedDocument as any).slug || 'unknown'}_${documentId}.json`;
+            const failureEntry = FailureReportManager.createFailureEntry(
+              failedDocument,
+              validationErrors,
+              (error as Error).message,
+              retryCount + 1,
+              backupFilePath
+            );
+            await failureReportManager.logFailure(failureEntry);
+          } catch (reportError) {
+            logger.error('Failed to log failure to report', {
+              documentId,
+              error: (reportError as Error).message,
+            });
+          }
+        }
 
         // Re-throw to let SQS handle retry
         throw error;

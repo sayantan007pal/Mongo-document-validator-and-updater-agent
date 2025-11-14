@@ -22,25 +22,30 @@ interface BackupData {
 }
 
 /**
- * Backup Manager for failed documents
+ * Backup Manager for failed and corrected documents
  */
 export class BackupManager {
-  private backupDir: string;
+  private failedQuestionsDir: string;
+  private correctedQuestionsDir: string;
 
-  constructor(backupDir: string) {
-    this.backupDir = backupDir;
+  constructor(failedQuestionsDir: string, correctedQuestionsDir: string) {
+    this.failedQuestionsDir = failedQuestionsDir;
+    this.correctedQuestionsDir = correctedQuestionsDir;
   }
 
   /**
-   * Initialize backup directory
+   * Initialize backup directories
    */
   async initialize(): Promise<void> {
     try {
-      await fs.mkdir(this.backupDir, { recursive: true });
-      logger.info('Backup directory initialized', { path: this.backupDir });
+      await fs.mkdir(this.failedQuestionsDir, { recursive: true });
+      await fs.mkdir(this.correctedQuestionsDir, { recursive: true });
+      logger.info('Backup directories initialized', {
+        failedQuestionsDir: this.failedQuestionsDir,
+        correctedQuestionsDir: this.correctedQuestionsDir
+      });
     } catch (error) {
-      logger.error('Failed to initialize backup directory', {
-        path: this.backupDir,
+      logger.error('Failed to initialize backup directories', {
         error: (error as Error).message,
       });
       throw error;
@@ -48,19 +53,19 @@ export class BackupManager {
   }
 
   /**
-   * Save failed document to backup
+   * Save failed document to backup using slug and MongoDB ID naming
    */
   async saveBackup(
     document: CodingQuestion,
     validationErrors: ValidationError[]
   ): Promise<string> {
     try {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const questionId = document.question_id || 'unknown';
-      const documentId = document._id ? document._id.toString() : 'no-id';
+      const slug = (document as any).slug || 'unknown-slug';
+      const mongoId = document._id ? document._id.toString() : 'no-id';
+      const documentId = mongoId;
 
-      const filename = `${timestamp}_${questionId}.json`;
-      const filepath = path.join(this.backupDir, filename);
+      const filename = `${slug}_${mongoId}.json`;
+      const filepath = path.join(this.failedQuestionsDir, filename);
 
       const backupData: BackupData = {
         metadata: {
@@ -73,9 +78,9 @@ export class BackupManager {
 
       await fs.writeFile(filepath, JSON.stringify(backupData, null, 2), 'utf-8');
 
-      logger.info('Document backed up successfully', {
+      logger.info('Failed document backed up successfully', {
         filepath,
-        questionId,
+        slug,
         documentId,
         errorCount: validationErrors.length,
       });
@@ -91,11 +96,42 @@ export class BackupManager {
   }
 
   /**
-   * Load backup by filename
+   * Save corrected document to corrected questions directory
+   */
+  async saveCorrectedDocument(
+    document: CodingQuestion
+  ): Promise<string> {
+    try {
+      const slug = (document as any).slug || 'unknown-slug';
+      const mongoId = document._id ? document._id.toString() : 'no-id';
+
+      const filename = `${slug}_${mongoId}.json`;
+      const filepath = path.join(this.correctedQuestionsDir, filename);
+
+      await fs.writeFile(filepath, JSON.stringify(document, null, 2), 'utf-8');
+
+      logger.info('Corrected document saved successfully', {
+        filepath,
+        slug,
+        documentId: mongoId,
+      });
+
+      return filepath;
+    } catch (error) {
+      logger.error('Failed to save corrected document', {
+        questionId: document.question_id,
+        error: (error as Error).message,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Load backup by filename from failed questions directory
    */
   async loadBackup(filename: string): Promise<BackupData> {
     try {
-      const filepath = path.join(this.backupDir, filename);
+      const filepath = path.join(this.failedQuestionsDir, filename);
       const content = await fs.readFile(filepath, 'utf-8');
       return JSON.parse(content) as BackupData;
     } catch (error) {
@@ -108,11 +144,28 @@ export class BackupManager {
   }
 
   /**
-   * List all backup files
+   * Load corrected document by filename
+   */
+  async loadCorrectedDocument(filename: string): Promise<CodingQuestion> {
+    try {
+      const filepath = path.join(this.correctedQuestionsDir, filename);
+      const content = await fs.readFile(filepath, 'utf-8');
+      return JSON.parse(content) as CodingQuestion;
+    } catch (error) {
+      logger.error('Failed to load corrected document', {
+        filename,
+        error: (error as Error).message,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * List all failed question backup files
    */
   async listBackups(): Promise<string[]> {
     try {
-      const files = await fs.readdir(this.backupDir);
+      const files = await fs.readdir(this.failedQuestionsDir);
       return files.filter((file) => file.endsWith('.json'));
     } catch (error) {
       logger.error('Failed to list backups', {
@@ -123,11 +176,26 @@ export class BackupManager {
   }
 
   /**
-   * Delete backup file
+   * List all corrected question files
+   */
+  async listCorrectedDocuments(): Promise<string[]> {
+    try {
+      const files = await fs.readdir(this.correctedQuestionsDir);
+      return files.filter((file) => file.endsWith('.json'));
+    } catch (error) {
+      logger.error('Failed to list corrected documents', {
+        error: (error as Error).message,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete backup file from failed questions directory
    */
   async deleteBackup(filename: string): Promise<void> {
     try {
-      const filepath = path.join(this.backupDir, filename);
+      const filepath = path.join(this.failedQuestionsDir, filename);
       await fs.unlink(filepath);
       logger.info('Backup deleted', { filename });
     } catch (error) {
@@ -140,22 +208,54 @@ export class BackupManager {
   }
 
   /**
-   * Get backup statistics
+   * Delete corrected document file
    */
-  async getStats(): Promise<{ totalBackups: number; totalSize: number }> {
+  async deleteCorrectedDocument(filename: string): Promise<void> {
     try {
-      const files = await this.listBackups();
-      let totalSize = 0;
+      const filepath = path.join(this.correctedQuestionsDir, filename);
+      await fs.unlink(filepath);
+      logger.info('Corrected document deleted', { filename });
+    } catch (error) {
+      logger.error('Failed to delete corrected document', {
+        filename,
+        error: (error as Error).message,
+      });
+      throw error;
+    }
+  }
 
-      for (const file of files) {
-        const filepath = path.join(this.backupDir, file);
+  /**
+   * Get backup statistics for both directories
+   */
+  async getStats(): Promise<{
+    totalFailedBackups: number;
+    totalCorrectedDocuments: number;
+    failedSize: number;
+    correctedSize: number;
+  }> {
+    try {
+      const failedFiles = await this.listBackups();
+      const correctedFiles = await this.listCorrectedDocuments();
+      let failedSize = 0;
+      let correctedSize = 0;
+
+      for (const file of failedFiles) {
+        const filepath = path.join(this.failedQuestionsDir, file);
         const stats = await fs.stat(filepath);
-        totalSize += stats.size;
+        failedSize += stats.size;
+      }
+
+      for (const file of correctedFiles) {
+        const filepath = path.join(this.correctedQuestionsDir, file);
+        const stats = await fs.stat(filepath);
+        correctedSize += stats.size;
       }
 
       return {
-        totalBackups: files.length,
-        totalSize,
+        totalFailedBackups: failedFiles.length,
+        totalCorrectedDocuments: correctedFiles.length,
+        failedSize,
+        correctedSize,
       };
     } catch (error) {
       logger.error('Failed to get backup stats', {
